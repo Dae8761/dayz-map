@@ -4,91 +4,258 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>DayZ Map (XAM Wrap)</title>
-
 <style>
-html,body{
-  margin:0;
-  height:100%;
-  background:#0b0f14;
-  overflow:hidden;
-  font-family:-apple-system,system-ui;
-}
+  html,body{margin:0;height:100%;background:#0b0f14;overflow:hidden;font-family:-apple-system,system-ui}
+  #hud{
+    position:fixed;top:10px;left:10px;right:10px;z-index:50;
+    background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.15);
+    padding:10px;border-radius:14px;backdrop-filter:blur(10px);color:#fff
+  }
+  #hud .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  #hud button{
+    padding:8px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.2);
+    background:rgba(255,255,255,.10);color:#fff;font-size:14px
+  }
+  #hud small{opacity:.85}
+  #stage{position:absolute;inset:0}
+  #rotator{position:absolute;inset:0;transform-origin:center center;will-change:transform}
+  iframe{width:100%;height:100%;border:none}
 
-#hud{
-  position:fixed;
-  top:12px; left:12px; right:12px;
-  z-index:10;
-  background:rgba(0,0,0,.55);
-  border:1px solid rgba(255,255,255,.15);
-  padding:10px;
-  border-radius:14px;
-  backdrop-filter:blur(10px);
-  color:#fff;
-}
+  /* “Hide xam UI” by masking the right toolbar + bottom bar areas */
+  .mask{
+    position:fixed;z-index:40;pointer-events:none;background:rgba(0,0,0,0.0)
+  }
+  /* Right-side toolbar mask (adjust width if needed) */
+  #maskRight{top:0;right:0;width:88px;height:100%}
+  /* Bottom bar mask (adjust height if needed) */
+  #maskBottom{left:0;bottom:0;width:100%;height:70px}
 
-#hud button{
-  padding:8px 12px;
-  border-radius:10px;
-  border:1px solid rgba(255,255,255,.2);
-  background:rgba(255,255,255,.1);
-  color:#fff;
-  font-size:14px;
-}
+  /* Rotate mode overlay (captures 2-finger rotate only when enabled) */
+  #rotateOverlay{
+    position:fixed;inset:0;z-index:60;display:none;
+    touch-action:none; /* we handle gestures here */
+  }
 
-#frameWrap{
-  position:absolute;
-  inset:0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-}
-
-#rotator{
-  width:100%;
-  height:100%;
-  transform-origin:center center;
-}
-
-iframe{
-  width:100%;
-  height:100%;
-  border:none;
-}
+  /* Pins drawer */
+  #drawer{
+    position:fixed;z-index:55;right:10px;top:74px;width:min(92vw,340px);
+    max-height:60vh;overflow:auto;
+    background:rgba(0,0,0,.62);border:1px solid rgba(255,255,255,.15);
+    border-radius:14px;padding:10px;backdrop-filter:blur(10px);display:none;color:#fff
+  }
+  #drawer input{
+    width:100%;box-sizing:border-box;margin:6px 0;padding:10px;border-radius:12px;
+    border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff
+  }
+  #pins{margin-top:8px;display:flex;flex-direction:column;gap:8px}
+  .pinRow{
+    display:flex;gap:8px;align-items:center;justify-content:space-between;
+    padding:8px;border-radius:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10)
+  }
+  .pinRow .name{font-weight:600;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pinRow button{padding:6px 10px;border-radius:10px;font-size:13px}
 </style>
 </head>
-
 <body>
 
 <div id="hud">
-  <button onclick="rotate(-15)">⟲ 15°</button>
-  <button onclick="rotate(15)">⟳ 15°</button>
-  <button onclick="reset()">Reset</button>
-</div>
-
-<div id="frameWrap">
-  <div id="rotator">
-    <iframe
-      src="https://dayz.xam.nu/#7919.29;7755.80;4"
-      allowfullscreen>
-    </iframe>
+  <div class="row">
+    <button id="rotL">⟲ 15°</button>
+    <button id="rotR">⟳ 15°</button>
+    <button id="reset">Reset</button>
+    <button id="rotateMode">Rotate (2 fingers)</button>
+    <button id="togglePins">Pins</button>
+    <button id="toggleHide">Hide UI: ON</button>
+  </div>
+  <div style="margin-top:6px">
+    <small>
+      Tip: For pins, use xam’s share/copy link for a location, paste it into Pins → Save.
+      Rotate mode lets you 2-finger rotate the whole view for quick alignment.
+    </small>
   </div>
 </div>
 
+<div id="stage">
+  <div id="rotator">
+    <iframe id="xam" src="https://dayz.xam.nu/#7919.29;7755.80;4" allowfullscreen></iframe>
+  </div>
+</div>
+
+<!-- Masks to “hide” xam UI -->
+<div id="maskRight" class="mask"></div>
+<div id="maskBottom" class="mask"></div>
+
+<!-- Rotate overlay -->
+<div id="rotateOverlay"></div>
+
+<!-- Pins drawer -->
+<div id="drawer">
+  <div style="font-weight:700">Saved Pins (links)</div>
+  <input id="pinName" placeholder="Pin name (ex: Stash by Staroye)" />
+  <input id="pinUrl" placeholder="Paste xam link here (ex: https://dayz.xam.nu/#...)" />
+  <div class="row" style="margin-top:6px">
+    <button id="savePin">Save Pin</button>
+    <button id="clearPins">Clear All</button>
+  </div>
+  <div id="pins"></div>
+</div>
+
 <script>
-let angle = 0;
+(() => {
+  const rotator = document.getElementById('rotator');
+  const iframe  = document.getElementById('xam');
 
-function rotate(d){
-  angle += d;
-  document.getElementById("rotator").style.transform =
-    `rotate(${angle}deg)`;
-}
+  let angle = 0;
+  const applyRot = () => rotator.style.transform = `rotate(${angle}deg)`;
+  document.getElementById('rotL').onclick = () => { angle -= 15; applyRot(); };
+  document.getElementById('rotR').onclick = () => { angle += 15; applyRot(); };
+  document.getElementById('reset').onclick = () => { angle = 0; applyRot(); };
 
-function reset(){
-  angle = 0;
-  document.getElementById("rotator").style.transform =
-    "rotate(0deg)";
-}
+  // ---- Hide UI masks toggle ----
+  let hideUI = true;
+  const maskR = document.getElementById('maskRight');
+  const maskB = document.getElementById('maskBottom');
+  const hideBtn = document.getElementById('toggleHide');
+
+  function setHideUI(on){
+    hideUI = on;
+    maskR.style.display = on ? 'block' : 'none';
+    maskB.style.display = on ? 'block' : 'none';
+    hideBtn.textContent = `Hide UI: ${on ? 'ON' : 'OFF'}`;
+  }
+  hideBtn.onclick = () => setHideUI(!hideUI);
+  setHideUI(true);
+
+  // ---- Rotate mode (2-finger rotate on overlay) ----
+  const overlay = document.getElementById('rotateOverlay');
+  const rotateModeBtn = document.getElementById('rotateMode');
+
+  let rotateMode = false;
+  let pts = new Map();
+  let lastAng = null;
+
+  function enableRotateMode(on){
+    rotateMode = on;
+    overlay.style.display = on ? 'block' : 'none';
+    rotateModeBtn.textContent = on ? 'Rotate: ON (2 fingers)' : 'Rotate (2 fingers)';
+    // when rotate mode is on, block interactions with the iframe so we can read touches
+    iframe.style.pointerEvents = on ? 'none' : 'auto';
+  }
+
+  rotateModeBtn.onclick = () => enableRotateMode(!rotateMode);
+
+  function getAng(a,b){ return Math.atan2(b.y-a.y, b.x-a.x); }
+  function dist(a,b){ return Math.hypot(b.x-a.x, b.y-a.y); }
+
+  overlay.addEventListener('pointerdown', e => {
+    overlay.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, {x:e.clientX,y:e.clientY});
+    if(pts.size === 2){
+      const [p1,p2] = [...pts.values()];
+      lastAng = getAng(p1,p2);
+    }
+  });
+
+  overlay.addEventListener('pointermove', e => {
+    if(!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, {x:e.clientX,y:e.clientY});
+    if(pts.size === 2){
+      const [p1,p2] = [...pts.values()];
+      const a = getAng(p1,p2);
+      if(lastAng != null){
+        const delta = (a - lastAng) * (180/Math.PI);
+        angle += delta;
+        applyRot();
+      }
+      lastAng = a;
+    }
+  });
+
+  function endPtr(e){
+    pts.delete(e.pointerId);
+    if(pts.size < 2) lastAng = null;
+  }
+  overlay.addEventListener('pointerup', endPtr);
+  overlay.addEventListener('pointercancel', endPtr);
+
+  // ---- Pins as saved xam links ----
+  const drawer = document.getElementById('drawer');
+  const togglePins = document.getElementById('togglePins');
+  const pinName = document.getElementById('pinName');
+  const pinUrl  = document.getElementById('pinUrl');
+  const pinsDiv = document.getElementById('pins');
+  const KEY = "dayz_xam_wrap_pins_v1";
+  let pins = [];
+
+  function loadPins(){
+    try{ pins = JSON.parse(localStorage.getItem(KEY) || "[]"); }catch{ pins = []; }
+  }
+  function savePins(){ localStorage.setItem(KEY, JSON.stringify(pins)); }
+
+  function renderPins(){
+    pinsDiv.innerHTML = "";
+    if(!pins.length){
+      const empty = document.createElement('div');
+      empty.style.opacity = .85;
+      empty.style.marginTop = "10px";
+      empty.textContent = "No pins yet. In xam.nu, copy/share a location link, paste it above, then Save.";
+      pinsDiv.appendChild(empty);
+      return;
+    }
+    pins.forEach((p, idx) => {
+      const row = document.createElement('div');
+      row.className = "pinRow";
+      const left = document.createElement('div');
+      left.className = "name";
+      left.textContent = p.name || "Pin";
+      const btns = document.createElement('div');
+      btns.style.display="flex"; btns.style.gap="8px";
+
+      const go = document.createElement('button');
+      go.textContent = "Go";
+      go.onclick = () => { iframe.src = p.url; };
+
+      const del = document.createElement('button');
+      del.textContent = "Del";
+      del.onclick = () => {
+        pins.splice(idx,1);
+        savePins(); renderPins();
+      };
+
+      btns.appendChild(go);
+      btns.appendChild(del);
+      row.appendChild(left);
+      row.appendChild(btns);
+      pinsDiv.appendChild(row);
+    });
+  }
+
+  togglePins.onclick = () => {
+    drawer.style.display = (drawer.style.display === 'none' || !drawer.style.display) ? 'block' : 'none';
+  };
+
+  document.getElementById('savePin').onclick = () => {
+    const name = (pinName.value || "").trim();
+    const url  = (pinUrl.value  || "").trim();
+    if(!url.startsWith("https://dayz.xam.nu")){
+      alert("Paste a full xam.nu link starting with https://dayz.xam.nu/#...");
+      return;
+    }
+    pins.unshift({name, url});
+    pins = pins.slice(0, 50);
+    savePins(); renderPins();
+    pinName.value = ""; pinUrl.value = "";
+  };
+
+  document.getElementById('clearPins').onclick = () => {
+    if(confirm("Clear all pins?")){
+      pins = [];
+      savePins(); renderPins();
+    }
+  };
+
+  loadPins(); renderPins();
+})();
 </script>
-
 </body>
 </html>
